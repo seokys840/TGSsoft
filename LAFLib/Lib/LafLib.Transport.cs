@@ -46,6 +46,8 @@ namespace LAFLib
     {
         readonly TcpClient client;
         readonly NetworkStream stream;
+        int readTimeoutMs = 1000;
+        const int PollSliceMs = 20;
 
         public TcpTransport(string host, int port, int connectTimeoutMs)
         {
@@ -59,7 +61,6 @@ namespace LAFLib
 
                 client.NoDelay = true;
                 stream = client.GetStream();
-                stream.ReadTimeout = 1000;
             }
             catch
             {
@@ -70,30 +71,34 @@ namespace LAFLib
 
         public bool IsOpen { get { return client.Connected; } }
 
+        // 주의: NetworkStream.ReadTimeout(= SO_RCVTIMEO)은 여기서 절대 사용하지 않는다.
+        // Winsock 사양상 블로킹 소켓에서 수신 타임아웃이 한 번이라도 발동하면 그 연결은
+        // 내부적으로 손상되어, 이후 같은 소켓으로의 Send가 전부
+        // "현재 연결은 사용자의 호스트 시스템의 소프트웨어의 의해 중단되었습니다"(WSAECONNABORTED)로 실패한다.
+        // 따라서 타임아웃은 Socket.Poll로 데이터 도착 여부만 확인해서 직접 구현한다.
         public int ReadTimeout
         {
-            get { return stream.ReadTimeout; }
-            set { stream.ReadTimeout = value; }
+            get { return readTimeoutMs; }
+            set { readTimeoutMs = value; }
         }
 
         public void Write(byte[] buffer, int offset, int count) { stream.Write(buffer, offset, count); }
 
         public int Read(byte[] buffer, int offset, int count)
         {
-            try
+            int waited = 0;
+            while (!client.Client.Poll(PollSliceMs * 1000, SelectMode.SelectRead))
             {
-                int n = stream.Read(buffer, offset, count);
-                if (n == 0)
-                    throw new IOException("Connection closed by remote host.");
-                return n;
+                waited += PollSliceMs;
+                if (waited >= readTimeoutMs)
+                    throw new TimeoutException("Read timeout");
             }
-            catch (IOException ex)
-            {
-                SocketException se = ex.InnerException as SocketException;
-                if (se != null && se.SocketErrorCode == SocketError.TimedOut)
-                    throw new TimeoutException("Read timeout", ex);
-                throw;
-            }
+
+            // Poll이 true를 반환한 경우 데이터가 있거나 연결이 끊긴 것이다(둘 다 Read 호출로 확인 가능).
+            int n = stream.Read(buffer, offset, count);
+            if (n == 0)
+                throw new IOException("Connection closed by remote host.");
+            return n;
         }
 
         public void DiscardInBuffer()

@@ -814,7 +814,7 @@
             this.tb_tcpport.Name = "tb_tcpport";
             this.tb_tcpport.Size = new System.Drawing.Size(88, 21);
             this.tb_tcpport.TabIndex = 35;
-            this.tb_tcpport.Text = "23";
+            this.tb_tcpport.Text = "9999";
             this.tb_tcpport.Visible = false;
             //
             // label24

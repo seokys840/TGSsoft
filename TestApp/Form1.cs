@@ -17,6 +17,7 @@ namespace TestApp
         Timer timer3 = new Timer();     // Tracking Timer
         bool bWait_AnotherUse = false;
         bool bComport_Open = false;
+        bool bConnLost = false;     // 통신 연결 끊김을 한 번만 처리하기 위한 가드
 
 
         public Form1()
@@ -70,6 +71,7 @@ namespace TestApp
             }
 
             bComport_Open = true;
+            bConnLost = false;
 
 
             groupBox1.Visible = true;
@@ -480,43 +482,104 @@ namespace TestApp
 
         private void fm_event_timer(object sender, EventArgs e)
         {
-            // 2025.9.15
-            /*
-            if (!bWait_AnotherUse)
-                ;//checkMotor_Limitswitch();
-             */
-            if (!bWait_AnotherUse)
+            try
             {
-                checkMotor_Limitswitch();
+                // 2025.9.15
+                /*
+                if (!bWait_AnotherUse)
+                    ;//checkMotor_Limitswitch();
+                 */
+                if (!bWait_AnotherUse)
+                {
+                    checkMotor_Limitswitch();
 
-                checkMotor_ReadPos();
+                    checkMotor_ReadPos();
 
+                }
+                // 2025.9.15
+
+
+                if (sc.Func_IsRunning())
+                    labRunning.BackColor = Color.Red;
+                else
+                    labRunning.BackColor = Color.RoyalBlue;
             }
-            // 2025.9.15
-
-
-            if (sc.Func_IsRunning())
-                labRunning.BackColor = Color.Red;
-            else
-                labRunning.BackColor = Color.RoyalBlue;
-
+            catch (Exception ex)
+            {
+                HandleConnectionLost(ex);
+            }
         }
 
         private void fm_event_timer2(object sender, EventArgs e)
         {
-            cbb_lens_SelectedIndexChanged(sender, e);
+            try
+            {
+                cbb_lens_SelectedIndexChanged(sender, e);
 
-            // Limit Default Setting Start
-            Default_Limit_Set();
-
-            timer2.Stop();
+                // Limit Default Setting Start
+                Default_Limit_Set();
+            }
+            catch (Exception ex)
+            {
+                HandleConnectionLost(ex);
+            }
+            finally
+            {
+                timer2.Stop();
+            }
         }
 
         private void fm_event_timer3(object sender, EventArgs e)
         {
             bWait_AnotherUse = true;
-            sc.Func_FLaser();
-            bWait_AnotherUse = false;
+            try
+            {
+                sc.Func_FLaser();
+            }
+            catch (Exception ex)
+            {
+                HandleConnectionLost(ex);
+            }
+            finally
+            {
+                bWait_AnotherUse = false;
+            }
+        }
+
+        /// <summary>
+        /// 통신(Serial/LAN) 연결이 끊어졌을 때 공통으로 처리한다.
+        /// 타이머를 멈추고 안전하게 Close 한 뒤, 처리되지 않은 예외 대화상자 대신
+        /// 한 번만 안내 메시지를 보여준다. (연결이 끊기면 여러 타이머가 거의 동시에
+        /// 예외를 낼 수 있어 bConnLost로 중복 팝업을 막는다)
+        /// </summary>
+        private void HandleConnectionLost(Exception ex)
+        {
+            if (bConnLost)
+                return;
+            bConnLost = true;
+
+            timer.Stop();
+            timer2.Stop();
+            timer3.Stop();
+
+            try
+            {
+                if (bComport_Open)
+                    sc.Close();
+            }
+            catch
+            {
+                // 이미 끊어진 연결을 닫는 중의 예외는 무시
+            }
+            bComport_Open = false;
+
+            groupBox1.Visible = false;
+            groupBox2.Visible = false;
+            groupBox3.Visible = false;
+            groupBox5.Visible = false;
+
+            MessageBox.Show("통신 연결이 끊어졌습니다.\r\n" + ex.Message, "연결 끊김",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         public void checkMotor_ReadPos()
@@ -531,7 +594,7 @@ namespace TestApp
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                HandleConnectionLost(ex);
             }
         }
 
@@ -559,7 +622,7 @@ namespace TestApp
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                HandleConnectionLost(ex);
             }
         }
 
